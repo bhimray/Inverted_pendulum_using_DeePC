@@ -81,16 +81,20 @@ x = zeros(nx, Nsim+1);
 y = zeros(ny, Nsim);
 u = zeros(nu, Nsim);
 
-% Initial condition (same as DeePC ideally)
-x(:,1) = [0.2; 0; 0.1; 0];
+% Initial condition
+x(:,1) = [0.0; 0; 0.1; 0];
 
 % Reference
-r = 0.0;   % regulation to zero (IMPORTANT for fair comparison)
+r = 0.2;   % cart position reference in meters
 
 %% =========================================================
 %  CLOSED-LOOP SIMULATION
 %% =========================================================
+lqr_total_timer = tic;
+lqr_step_time_hist = zeros(1, Nsim);
+
 for k = 1:Nsim
+    lqr_step_timer = tic;
     
     % control law: u = -Kx + Nbar*r
     u(:,k) = -K*x(:,k) + Nbar*r;
@@ -100,7 +104,19 @@ for k = 1:Nsim
     
     % output
     y(:,k) = Cd*x(:,k);
+
+    lqr_step_time_hist(k) = toc(lqr_step_timer);
 end
+
+lqr_total_time = toc(lqr_total_timer);
+lqr_avg_step_time = mean(lqr_step_time_hist);
+lqr_max_step_time = max(lqr_step_time_hist);
+
+fprintf('\n=== LQR computation time ===\n');
+fprintf('Sampling time Ts            = %.6f s (%.2f ms)\n', Ts, Ts*1000);
+fprintf('Total computation time      = %.6f s (%.2f ms)\n', lqr_total_time, lqr_total_time*1000);
+fprintf('Average step time           = %.6f s (%.4f ms)\n', lqr_avg_step_time, lqr_avg_step_time*1000);
+fprintf('Worst-case step time        = %.6f s (%.4f ms)\n', lqr_max_step_time, lqr_max_step_time*1000);
 
 t = (0:Nsim-1)*Ts;
 
@@ -143,5 +159,18 @@ grid on
 %% =========================================================
 %  SAVE FOR COMPARISON
 %% =========================================================
+xLqr = x;
+yLqr = y;
+uLqr = u;
+JLqr = J;
+
+% Aliases used by animation.m when this LQR result file is selected.
+xAnim = xLqr;
+uAnim = uLqr;
+controller_name = 'LQR';
+
 save('lqr_baseline.mat', ...
-    'x','y','u','t','K','Nbar','Ad','Bd','Cd','Dd','Ts','J');
+    'x','y','u','t','K','Nbar','Ad','Bd','Cd','Dd','Ts','J', ...
+    'lqr_total_time','lqr_avg_step_time','lqr_max_step_time','lqr_step_time_hist', ...
+    'xLqr','yLqr','uLqr','JLqr', ...
+    'xAnim','uAnim','controller_name');

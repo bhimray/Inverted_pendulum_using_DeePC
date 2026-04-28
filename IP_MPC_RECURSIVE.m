@@ -42,26 +42,84 @@ nu = size(Bd,2);
 ny = size(Cd,1);
 
 %% MPC parameters
-N = 30; % getting infeasiblity for N < 30 because of terminal constraint
+N = 20; % getting infeasiblity for N < 30 because of terminal constraint
 
-Q = diag([200 200]);
+Qx = diag([200 20 500 20]);
 R = 0.01;
-r = [0.2; 0];   % desired output
+x_ref = [0.2; 0; 0; 0];   % desired state
+x = [0.0;0.0;0.1;0.0];
 
 umin = -10;
 umax = 10;
+
+%% Terminal invariant set under local LQR feedback
+% Error dynamics: e(k+1) = Ad*e(k) + Bd*v(k), v(k) = u(k) - u_ref.
+% For this reference, u_ref = 0 and e = x - x_ref.
+[K_terminal,P,~] = dlqr(Ad,Bd,Qx,R);
+Acl_terminal = Ad - Bd*K_terminal;
+
+% Finite approximation of the invariant set:
+% Xf = {e | umin <= -K_terminal*Acl_terminal^j*e <= umax, j = 0,...,Mset}
+Mset = 80;
+Hf = [];
+hf = [];
+terminal_set_tol = 1e-7;
+
+for j = 0:Mset
+    Aclj = Acl_terminal^j;
+    Hf = [Hf;
+          -K_terminal*Aclj;
+           K_terminal*Aclj];
+    hf = [hf;
+          umax*ones(nu,1);
+         -umin*ones(nu,1)];
+end
+
+terminal_set_verified = false;
+
+if exist('linprog','file') == 2
+    lp_options = optimoptions('linprog','Display','none');
+    max_invariance_violation = -inf;
+    terminal_set_verified = true;
+
+    for row = 1:size(Hf,1)
+        objective = -(Hf(row,:)*Acl_terminal)';
+        [~,fval,exitflag] = linprog(objective,Hf,hf,[],[],[],[],lp_options);
+
+        if exitflag <= 0
+            terminal_set_verified = false;
+            warning('Could not verify terminal set invariance. linprog exit flag: %d', exitflag);
+            break;
+        end
+
+        max_value = -fval;
+        max_invariance_violation = max(max_invariance_violation, max_value - hf(row));
+
+        if max_value > hf(row) + terminal_set_tol
+            terminal_set_verified = false;
+            warning('Terminal set is not invariant for Mset = %d. Increase Mset or tighten the set.', Mset);
+            break;
+        end
+    end
+else
+    max_invariance_violation = nan;
+    warning('linprog is unavailable. Terminal set invariance was not verified.');
+end
 
 %% Simulation
 Tsim = 500;
 t = (0:Tsim-1)*Ts;
 
-x = [0.0;0.0;0.0;0.0];
 
+x_mpc = zeros(nx,Tsim+1);
 x_hist = zeros(nx,Tsim);
 u_hist = zeros(nu,Tsim);
 y_hist = zeros(ny,Tsim);
 solve_time_hist = zeros(1,Tsim);
 step_time_hist = zeros(1,Tsim);
+terminal_error_hist = zeros(nx,Tsim);
+
+x_mpc(:,1) = x;
 
 ops = sdpsettings('solver','OSQP','verbose',1);
 
@@ -88,33 +146,44 @@ for k = 1:Tsim
         %input constraints
         con = [con, umin <= u_var(:,i) <= umax];
 
-        % output
-        y_i = Cd*x_var(:,i);
-
-        % cost
-        obj = obj + ((y_i - r)'*Q*(y_i - r)) + (u_var(:,i)'*R*u_var(:,i));
+        % state and input cost
+        obj = obj + ((x_var(:,i) - x_ref)'*Qx*(x_var(:,i) - x_ref)) + (u_var(:,i)'*R*u_var(:,i));
 
     end
-    x_ref = [0.2; 0; 0; 0];
-    con = [con, x_var(:,N+1) == x_ref];
+
+    terminal_error = x_var(:,N+1) - x_ref;
+    con = [con, Hf*terminal_error <= hf];
+    obj = obj + terminal_error'*P*terminal_error;
+
     %% Solve
     solve_timer = tic;
     sol = optimize(con,obj,ops);
     solve_time_hist(k) = toc(solve_timer);
 
     if sol.problem ~= 0
-        disp('Solver failed');
-    end
+        warning('MPC optimization failed at step %d: %s', k, sol.info);
+        u_apply = 0;
+        terminal_error_hist(:,k) = nan(nx,1);
+    else
+        %% Apply first control
+        u_opt = value(u_var);
 
-    %% Apply first control
-    u_opt = value(u_var);
-    u_apply = u_opt(:,1);
+        if any(isnan(u_opt(:)))
+            warning('MPC returned NaN control at step %d. Applying zero input.', k);
+            u_apply = 0;
+            terminal_error_hist(:,k) = nan(nx,1);
+        else
+            u_apply = u_opt(:,1);
+            terminal_error_hist(:,k) = value(terminal_error);
+        end
+    end
 
     %% System update
     x = Ad*x + Bd*u_apply;
     y = Cd*x;
 
     %% Store
+    x_mpc(:,k+1) = x;
     x_hist(:,k) = x;
     u_hist(:,k) = u_apply;
     y_hist(:,k) = y;
@@ -140,6 +209,28 @@ if max_step_time < Ts
 else
     fprintf('Result: not feasible for real-time computation based on total control-step time.\n\n');
 end
+
+%% Save results for animation and comparison
+xMpc = x_mpc;
+yMpc = y_hist;
+uMpc = u_hist;
+xAnim = xMpc;
+uAnim = uMpc;
+controller_name = 'Recursive MPC';
+results_file = 'mpc_recursive_results.mat';
+
+save(results_file, ...
+    'xMpc','yMpc','uMpc', ...
+    'x_hist','y_hist','u_hist', ...
+    'xAnim','uAnim','controller_name', ...
+    'solve_time_hist','step_time_hist', ...
+    'terminal_error_hist','K_terminal','Acl_terminal','Hf','hf','Mset', ...
+    'terminal_set_verified','max_invariance_violation','terminal_set_tol', ...
+    'max_solve_time','avg_solve_time', ...
+    'max_step_time','avg_step_time', ...
+    'Ad','Bd','Cd','Ts','N','Qx','P','R','x_ref','umin','umax');
+
+fprintf('Results saved to %s\n', results_file);
 
 %% Plots
 figure

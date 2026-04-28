@@ -1,0 +1,40 @@
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# MATLAB temporary/generated files
+*.asv
+*.m~
+*.mex*
+*.slxc
+slprj/
+codegen/
+*.mltbx
+*.mlappinstall
+*.mlpkginstall
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+
+# Generic temporary files
+*.bak
+*.tmp
+*.temp
