@@ -140,7 +140,7 @@ if any(u_prbs < -prbs_max) || any(u_prbs > prbs_max)
 end
 
 %% 6. One continuous simulation
-x0 = [0; 0; 0.05; 0];
+x0 = [0; 0; 0.05; 0]; % // TODO: TRY TO CHANGE THIS VALUE TO 0.35
 
 X = zeros(nx, Ndata + 1);
 Y = zeros(ny, Ndata);

@@ -82,7 +82,7 @@ y = zeros(ny, Nsim);
 u = zeros(nu, Nsim);
 
 % Initial condition
-x(:,1) = [0.0; 0; 0.1; 0];
+x(:,1) = [0.0; 0; 0.3; 0];
 
 % Reference
 r = 0.2;   % cart position reference in meters
@@ -137,21 +137,31 @@ fprintf('\nLQR cumulative cost: %.6f\n', J);
 %% =========================================================
 %  PLOTS
 %% =========================================================
+t_desired = 1.5;          % presentation marker: desired value reached
+
 figure('Name','Correct LQR Benchmark','Color','w');
 
 subplot(3,1,1)
 plot(t, y(1,:), 'LineWidth',2)
+hold on
+xline(t_desired, '--r', 'Target reached', ...
+    'LineWidth', 1.5, 'LabelOrientation', 'horizontal', ...
+    'LabelVerticalAlignment', 'bottom');
 ylabel('cart position (m)')
 title('LQR (correct tracking, discrete-time)')
 grid on
 
 subplot(3,1,2)
 plot(t, y(2,:), 'LineWidth',2)
+hold on
+xline(t_desired, '--r', 'LineWidth', 1.5);
 ylabel('pendulum angle (rad)')
 grid on
 
 subplot(3,1,3)
 plot(t, u, 'LineWidth',2)
+hold on
+xline(t_desired, '--r', 'LineWidth', 1.5);
 xlabel('Time (s)')
 ylabel('control input u')
 grid on
