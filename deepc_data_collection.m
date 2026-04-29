@@ -79,7 +79,7 @@ fprintf('Controllability rank = %d / %d\n', rank(ctrb(Ad, Bd)), nx);
 %   - cart position is weakly penalized so the dataset covers more x motion
 %   - pole angle and angular rate are strongly penalized to stay near upright
 %   - R is moderate so the controller does not cancel the PRBS too strongly
-Qx = diag([50, 2, 50, 50]);
+Qx = diag([30, 2, 30, 10]);
 R = 10;
 K = dlqr(Ad, Bd, Qx, R);
 
@@ -92,7 +92,7 @@ disp(eig(Ad - Bd*K));
 %% 4. DeePC data and PE design parameters
 % Prediction settings used only for diagnostics and Hankel construction.
 Tini = 8;
-Npred = 100;
+Npred = 40;
 L = Tini + Npred;
 order_req = Tini + Npred + nx;
 
@@ -140,7 +140,7 @@ if any(u_prbs < -prbs_max) || any(u_prbs > prbs_max)
 end
 
 %% 6. One continuous simulation
-x0 = [0; 0; 0.05; 0]; % // TODO: TRY TO CHANGE THIS VALUE TO 0.35
+x0 = [0; 0; 0.35; 0]; % // TODO: TRY TO CHANGE THIS VALUE TO 0.35
 
 X = zeros(nx, Ndata + 1);
 Y = zeros(ny, Ndata);

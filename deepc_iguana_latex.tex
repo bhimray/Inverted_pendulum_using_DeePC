@@ -1,0 +1,530 @@
+% DeePC presentation content for IguanaTex / LaTeX slide equations
+% Source files: deepc_data_collection.m and deepc_reg.m
+%
+% Suggested presentation flow:
+% 1. Why DeePC for cart-pole?
+% 2. Offline data collection
+% 3. PRBS + stabilizing feedback
+% 4. Hankel data matrices
+% 5. Persistency of excitation
+% 6. Regularized DeePC optimization
+% 7. Receding-horizon implementation
+% 8. Diagnostics and takeaways
+
+% ------------------------------------------------------------
+% Common IguanaTex preamble
+% ------------------------------------------------------------
+\usepackage{amsmath,amssymb,bm}
+\newcommand{\R}{\mathbf{R}}
+\newcommand{\Tini}{T_{\mathrm{ini}}}
+\newcommand{\Npred}{N}
+\newcommand{\Ndata}{N_{\mathrm{data}}}
+\newcommand{\Ts}{T_s}
+\newcommand{\Hankel}{\mathcal{H}}
+\newcommand{\col}{\operatorname{col}}
+\newcommand{\rank}{\operatorname{rank}}
+
+% ============================================================
+% Slide 1: DeePC story
+% ============================================================
+% Slide title:
+% Data-Enabled Predictive Control for the Cart-Pole
+%
+% Speaker storyline:
+% DeePC replaces explicit prediction by model matrices with prediction
+% from one sufficiently rich input-output-state trajectory.
+
+\[
+\text{Model-based MPC:}\qquad
+x_{k+1}=A_d x_k+B_d u_k
+\]
+
+\[
+\text{DeePC:}\qquad
+\text{future trajectory}
+=
+\text{linear combination of measured trajectories}
+\]
+
+% ============================================================
+% Slide 2: Linearized cart-pole model used for simulation
+% ============================================================
+% Slide title:
+% Plant Model Used to Generate and Validate Data
+
+\[
+x=
+\begin{bmatrix}
+p & \dot p & \phi & \dot \phi
+\end{bmatrix}^{\top},
+\qquad
+y=
+\begin{bmatrix}
+p\\ \phi
+\end{bmatrix}
+\]
+
+\[
+\dot{x}(t)=Ax(t)+Bu(t),
+\qquad
+y(t)=Cx(t)+Du(t)
+\]
+
+\[
+C=
+\begin{bmatrix}
+1&0&0&0\\
+0&0&1&0
+\end{bmatrix},
+\qquad
+D=
+\begin{bmatrix}
+0\\0
+\end{bmatrix}
+\]
+
+\[
+x_{k+1}=A_d x_k+B_d u_k,
+\qquad
+y_k=C_d x_k+D_d u_k,
+\qquad
+T_s=0.01~\mathrm{s}
+\]
+
+% ============================================================
+% Slide 3: Why data collection needs feedback
+% ============================================================
+% Slide title:
+% The Data Must Be Rich, But the Plant Is Unstable
+%
+% Main point:
+% Strict open-loop PRBS can excite the system, but the inverted pendulum
+% can leave the local linearized region. The script therefore collects data
+% with stabilizing LQR feedback plus PRBS excitation.
+
+\[
+u_k = u_{\mathrm{fb},k}+u_{\mathrm{PRBS},k}
+\]
+
+\[
+u_{\mathrm{fb},k}=-K_{\mathrm{data}}x_k
+\]
+
+\[
+\boxed{
+u_k=-K_{\mathrm{data}}x_k+u_{\mathrm{PRBS},k}
+}
+\]
+
+\[
+u_{\mathrm{PRBS},k}
+\in
+\left[-4,\,4\right],
+\qquad
+u_k \in \left[-10,\,10\right]\ \text{checked diagnostically}
+\]
+
+% ============================================================
+% Slide 4: Offline data collected by deepc_data_collection.m
+% ============================================================
+% Slide title:
+% One Continuous Trajectory Becomes the DeePC Dataset
+
+\[
+N_{\mathrm{data}}=3000,
+\qquad
+T_{\mathrm{ini}}=8,
+\qquad
+N=40,
+\qquad
+L=T_{\mathrm{ini}}+N=48
+\]
+
+\[
+U \in \mathbf{R}^{1\times N_{\mathrm{data}}},
+\qquad
+Y \in \mathbf{R}^{2\times N_{\mathrm{data}}},
+\qquad
+X \in \mathbf{R}^{4\times(N_{\mathrm{data}}+1)}
+\]
+
+\[
+Y=
+\begin{bmatrix}
+\text{cart position}\\
+\text{pole angle}
+\end{bmatrix},
+\qquad
+X=
+\begin{bmatrix}
+p\\ \dot p\\ \phi\\ \dot \phi
+\end{bmatrix}
+\]
+
+% ============================================================
+% Slide 5: Block Hankel construction
+% ============================================================
+% Slide title:
+% Hankel Matrices Turn Data into Trajectory Libraries
+
+\[
+\mathcal{H}_L(w)=
+\begin{bmatrix}
+w_1 & w_2 & \cdots & w_{T-L+1}\\
+w_2 & w_3 & \cdots & w_{T-L+2}\\
+\vdots & \vdots & \ddots & \vdots\\
+w_L & w_{L+1} & \cdots & w_T
+\end{bmatrix}
+\]
+
+\[
+\begin{bmatrix}
+U_p\\U_f
+\end{bmatrix}
+=\mathcal{H}_L(U),
+\qquad
+\begin{bmatrix}
+Y_p\\Y_f
+\end{bmatrix}
+=\mathcal{H}_L(Y),
+\qquad
+\begin{bmatrix}
+X_p\\X_f
+\end{bmatrix}
+=\mathcal{H}_L(X)
+\]
+
+\[
+U_p\in\mathbf{R}^{n_uT_{\mathrm{ini}}\times n_c},
+\quad
+U_f\in\mathbf{R}^{n_uN\times n_c},
+\quad
+X_p\in\mathbf{R}^{n_xT_{\mathrm{ini}}\times n_c},
+\quad
+X_f\in\mathbf{R}^{n_xN\times n_c}
+\]
+
+% ============================================================
+% Slide 6: Past and future split
+% ============================================================
+% Slide title:
+% The Same Coefficient Vector Must Explain Past and Future
+
+\[
+g\in\mathbf{R}^{n_c}
+\]
+
+\[
+\underbrace{
+\begin{bmatrix}
+U_p\\X_p
+\end{bmatrix}g
+}_{\text{match measured past}}
+=
+\underbrace{
+\begin{bmatrix}
+u_{\mathrm{ini}}\\x_{\mathrm{ini}}
+\end{bmatrix}
+}_{\text{latest window}}
+\]
+
+\[
+\underbrace{
+\begin{bmatrix}
+U_f\\X_f
+\end{bmatrix}g
+}_{\text{predicted future}}
+=
+\underbrace{
+\begin{bmatrix}
+u\\x
+\end{bmatrix}
+}_{\text{optimization variables}}
+\]
+
+% ============================================================
+% Slide 7: Persistency of excitation
+% ============================================================
+% Slide title:
+% Richness Check: Persistency of Excitation
+
+\[
+L_{\mathrm{PE}}=T_{\mathrm{ini}}+N+n_x
+\]
+
+\[
+L_{\mathrm{PE}}=8+40+4=52
+\]
+
+\[
+\operatorname{rank}\!\left(\mathcal{H}_{L_{\mathrm{PE}}}(U)\right)
+=
+n_u L_{\mathrm{PE}}
+\]
+
+\[
+\operatorname{rank}\!\left(\mathcal{H}_{52}(U)\right)=52
+\qquad
+\text{is the target for } n_u=1.
+\]
+
+% ============================================================
+% Slide 8: What is saved after data collection
+% ============================================================
+% Slide title:
+% Offline Output Passed to the DeePC Controller
+
+\[
+\texttt{deepc\_cartpole\_dataset.mat}
+\quad\Longrightarrow\quad
+\{A_d,B_d,C_d,D_d,T_s,U,Y,X,U_p,U_f,X_p,X_f\}
+\]
+
+\[
+\text{The controller does not use only }u_{\mathrm{PRBS}}.
+\]
+
+\[
+\boxed{
+\text{The Hankel matrices are built from the actual applied input }U.
+}
+\]
+
+% ============================================================
+% Slide 9: Online DeePC variables from deepc_reg.m
+% ============================================================
+% Slide title:
+% Online Regularized DeePC Decision Variables
+
+\[
+g\in\mathbf{R}^{n_c},
+\qquad
+u\in\mathbf{R}^{n_uN},
+\qquad
+x\in\mathbf{R}^{n_xN},
+\qquad
+\sigma\in\mathbf{R}^{n_xT_{\mathrm{ini}}}
+\]
+
+\[
+u_{\mathrm{ini}}\in\mathbf{R}^{n_uT_{\mathrm{ini}}},
+\qquad
+x_{\mathrm{ini}}\in\mathbf{R}^{n_xT_{\mathrm{ini}}},
+\qquad
+x_k\in\mathbf{R}^{n_x}
+\]
+
+% ============================================================
+% Slide 10: DeePC behavioral constraints
+% ============================================================
+% Slide title:
+% Behavioral Constraints Used in the QP
+
+\[
+U_p g = u_{\mathrm{ini}}
+\]
+
+\[
+X_p g = x_{\mathrm{ini}}+\sigma
+\]
+
+\[
+U_f g = u,
+\qquad
+X_f g = x
+\]
+
+\[
+x_{0|k}=x_k
+\]
+
+% ============================================================
+% Slide 11: Regularized DeePC objective
+% ============================================================
+% Slide title:
+% Regularized DeePC Objective
+
+\[
+\bar Q=I_N\otimes Q_x,
+\qquad
+\bar R=I_N\otimes R_u
+\]
+
+\[
+\min_{g,u,x,\sigma}
+\ (x-r)^{\top}\bar Q(x-r)
++u^{\top}\bar R u
++\lambda_g\|g\|_1
++\lambda_{\sigma}\|\sigma\|_2^2
+\]
+
+\[
+Q_x=\operatorname{diag}(200,\ 10,\ 1000,\ 100),
+\qquad
+R_u=0.05
+\]
+
+\[
+\lambda_g=10,
+\qquad
+\lambda_{\sigma}=10^8
+\]
+
+% ============================================================
+% Slide 12: Full QP formulation
+% ============================================================
+% Slide title:
+% Optimization Solved at Every Control Step
+
+\[
+\begin{aligned}
+\min_{g,u,x,\sigma}\quad
+&(x-r)^{\top}\bar Q(x-r)
++u^{\top}\bar R u
++\lambda_g\|g\|_1
++\lambda_{\sigma}\|\sigma\|_2^2\\
+\mathrm{s.t.}\quad
+&U_p g=u_{\mathrm{ini}},\\
+&X_p g=x_{\mathrm{ini}}+\sigma,\\
+&U_f g=u,\\
+&X_f g=x,\\
+&x_{0|k}=x_k,\\
+&u_{\min}\le u\le u_{\max},\\
+&p_{\min}\le p\le p_{\max},\\
+&\phi_{\min}\le \phi\le \phi_{\max},\\
+&\phi_{N|k}=0.
+\end{aligned}
+\]
+
+% ============================================================
+% Slide 13: Constraints used in deepc_reg.m
+% ============================================================
+% Slide title:
+% Constraint Values in the Implementation
+
+\[
+-9.5\le u_k\le 9.5
+\]
+
+\[
+-0.40\le p_k\le 0.40
+\]
+
+\[
+-0.15\le \phi_k\le 0.15
+\]
+
+\[
+\phi_{N|k}=0
+\]
+
+% ============================================================
+% Slide 14: Receding horizon loop
+% ============================================================
+% Slide title:
+% DeePC Runs as a Receding-Horizon Controller
+
+\[
+\{u^\star,x^\star,g^\star,\sigma^\star\}
+=
+\operatorname{DeePC}
+\left(
+u_{\mathrm{ini}},
+x_{\mathrm{ini}},
+x_k,
+r
+\right)
+\]
+
+\[
+u_k=u^\star_{0|k}
+\]
+
+\[
+x_{k+1}=A_d x_k+B_d u_k
+\]
+
+\[
+u_{\mathrm{ini}}
+\leftarrow
+\operatorname{shift}
+\left(u_{\mathrm{ini}},u_k\right),
+\qquad
+x_{\mathrm{ini}}
+\leftarrow
+\operatorname{shift}
+\left(x_{\mathrm{ini}},x_k\right)
+\]
+
+% ============================================================
+% Slide 15: Closed-loop diagnostics
+% ============================================================
+% Slide title:
+% What the Simulation Checks
+
+\[
+N_{\mathrm{sim}}=300
+\]
+
+\[
+J_{\mathrm{DeePC}}
+=
+\sum_{k=0}^{N_{\mathrm{sim}}-1}
+\left[
+(x_k-r)^{\top}Q_x(x_k-r)
++u_k^{\top}R_u u_k
+\right]
+\]
+
+\[
+\text{reported diagnostics:}\quad
+\begin{cases}
+\text{successful QP solves},\\
+\text{input/state constraint violations},\\
+\|g\|_2,\ \|\sigma\|_2,\\
+\text{average and worst solve time}.
+\end{cases}
+\]
+
+% ============================================================
+% Slide 16: Computation-time check
+% ============================================================
+% Slide title:
+% Real-Time Feasibility Check
+
+\[
+T_s=0.01~\mathrm{s}=10~\mathrm{ms}
+\]
+
+\[
+\text{real-time feasible if}\qquad
+\max_k\ T_{\mathrm{step}}(k)<T_s
+\]
+
+\[
+T_{\mathrm{step}}(k)
+=
+T_{\mathrm{solve}}(k)+T_{\mathrm{update}}(k)
+\]
+
+% ============================================================
+% Slide 17: Final takeaway
+% ============================================================
+% Slide title:
+% DeePC Pipeline: From Exciting Data to Constrained Control
+
+\[
+\boxed{
+\text{PRBS + LQR data}
+\ \Longrightarrow\
+\text{Hankel trajectory library}
+\ \Longrightarrow\
+\text{regularized constrained QP}
+\ \Longrightarrow\
+\text{receding-horizon control}
+}
+\]
+
+\[
+\text{The key design choice is to preserve excitation while keeping the unstable plant near the linear region.}
+\]

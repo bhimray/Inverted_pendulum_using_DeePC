@@ -3,11 +3,16 @@ clear; clc; close all;
 %% Animate saved closed-loop simulation output
 % Use 'lqr_baseline.mat' after running IP_LQR_mod.m.
 % Use 'deepc_yalmip_results_versionB.mat' after running deepc_reg.m.
-results_file = 'lqr_baseline.mat';
-output_video = 'inverted_pendulum_lqr.mp4';
 
-% results_file = 'mpc_recursive_results.mat';
-% output_video = 'inverted_pendulum_mpc.mp4';
+% results_file = 'lqr_baseline.mat';
+% output_video = 'inverted_pendulum_lqr.mp4';
+
+results_file = 'mpc_recursive_results.mat';
+output_video = 'inverted_pendulum_mpc.mp4';
+
+% results_file = 'deepc_yalmip_results_versionB.mat';
+% output_video = 'inverted_pendulum_deepc.mp4';
+
 
 if ~isfile(results_file)
     error('Missing %s. Run deepc_reg.m before creating the animation.', results_file);

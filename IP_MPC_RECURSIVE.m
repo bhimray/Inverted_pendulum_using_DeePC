@@ -118,6 +118,8 @@ y_hist = zeros(ny,Tsim);
 solve_time_hist = zeros(1,Tsim);
 step_time_hist = zeros(1,Tsim);
 terminal_error_hist = zeros(nx,Tsim);
+x_pred_hist = nan(nx,N+1,Tsim);
+terminal_margin_hist = nan(1,Tsim);
 
 x_mpc(:,1) = x;
 
@@ -175,6 +177,8 @@ for k = 1:Tsim
         else
             u_apply = u_opt(:,1);
             terminal_error_hist(:,k) = value(terminal_error);
+            x_pred_hist(:,:,k) = value(x_var);
+            terminal_margin_hist(k) = max(Hf*terminal_error_hist(:,k) - hf);
         end
     end
 
@@ -224,7 +228,8 @@ save(results_file, ...
     'x_hist','y_hist','u_hist', ...
     'xAnim','uAnim','controller_name', ...
     'solve_time_hist','step_time_hist', ...
-    'terminal_error_hist','K_terminal','Acl_terminal','Hf','hf','Mset', ...
+    'terminal_error_hist','terminal_margin_hist','x_pred_hist', ...
+    'K_terminal','Acl_terminal','Hf','hf','Mset', ...
     'terminal_set_verified','max_invariance_violation','terminal_set_tol', ...
     'max_solve_time','avg_solve_time', ...
     'max_step_time','avg_step_time', ...
@@ -247,4 +252,22 @@ grid on
 subplot(3,1,3)
 plot(t,u_hist,'LineWidth',2)
 title('Control Force')
+grid on
+
+figure('Name','Recursive MPC computation time','Color','w')
+subplot(2,1,1)
+plot(t,solve_time_hist*1000,'LineWidth',2)
+hold on
+yline(Ts*1000,'--r','Sampling time','LineWidth',1.5)
+title('Optimization Time per MPC Step')
+ylabel('Time (ms)')
+grid on
+
+subplot(2,1,2)
+plot(t,step_time_hist*1000,'LineWidth',2)
+hold on
+yline(Ts*1000,'--r','Sampling time','LineWidth',1.5)
+title('Total Control-Step Computation Time')
+xlabel('Time (s)')
+ylabel('Time (ms)')
 grid on
