@@ -7,11 +7,11 @@ clear; clc; close all;
 % results_file = 'lqr_baseline.mat';
 % output_video = 'inverted_pendulum_lqr.mp4';
 
-results_file = 'mpc_recursive_results.mat';
-output_video = 'inverted_pendulum_mpc.mp4';
+% results_file = 'mpc_recursive_results.mat';
+% output_video = 'inverted_pendulum_mpc.mp4';
 
-% results_file = 'deepc_yalmip_results_versionB.mat';
-% output_video = 'inverted_pendulum_deepc.mp4';
+results_file = 'deepc_yalmip_results_versionB.mat';
+output_video = 'inverted_pendulum_deepc.mp4';
 
 
 if ~isfile(results_file)

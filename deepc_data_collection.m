@@ -1,27 +1,5 @@
 clear; clc; close all;
 
-%% =========================================================
-%  RESEARCH-GRADE DEEPC DATA COLLECTION FOR LINEARIZED CART-POLE
-%
-%  This script collects one continuous input-output-state trajectory for DeePC.
-%  The richness comes from a bounded MATLAB idinput PRBS signal. Because the
-%  open-loop linearized cart-pole is unstable, the default collection mode
-%  uses stabilizing LQR feedback plus PRBS excitation and stores the actual
-%  applied plant input U. This keeps the trajectory inside the linearized
-%  operating region while preserving input persistency of excitation.
-%
-%  Saved data orientation:
-%      U = 1 x Ndata
-%      Y = 2 x Ndata, rows [cart position; pole angle]
-%      X = 4 x (Ndata+1), full state trajectory including x(1)=x0
-%
-%  DeePC Hankel data:
-%      Up, Uf are built from U
-%      Yp, Yf are built from measured outputs Y
-%      Xp, Xf are built from state samples X(:,1:Ndata)
-%      All Hankel blocks have the same column count and time alignment.
-%% =========================================================
-
 %% 1. Continuous-time linearized inverted-pendulum model
 M = 0.5;       % cart mass [kg]
 m = 0.2;       % pole mass [kg]
@@ -71,14 +49,6 @@ disp(eig(Ad));
 fprintf('Controllability rank = %d / %d\n', rank(ctrb(Ad, Bd)), nx);
 
 %% 3. Stabilizing baseline for usable data collection
-% DeePC needs a valid input-output trajectory of the plant. For an unstable
-% plant, collecting this trajectory under feedback is standard practice as
-% long as the actual applied input U remains sufficiently exciting.
-%
-% Tuning intent:
-%   - cart position is weakly penalized so the dataset covers more x motion
-%   - pole angle and angular rate are strongly penalized to stay near upright
-%   - R is moderate so the controller does not cancel the PRBS too strongly
 Qx = diag([30, 2, 30, 10]);
 R = 10;
 K = dlqr(Ad, Bd, Qx, R);
@@ -90,19 +60,15 @@ fprintf('Closed-loop poles:\n');
 disp(eig(Ad - Bd*K));
 
 %% 4. DeePC data and PE design parameters
-% Prediction settings used only for diagnostics and Hankel construction.
 Tini = 8;
-Npred = 40;
+Npred = 100;
 L = Tini + Npred;
 order_req = Tini + Npred + nx;
 
 N = 3000;            % data length required by the idinput PRBS design
 Ndata = N;           % descriptive alias used throughout the collection script
-Umax = 10;           % physical actuator bound used for diagnostics
+Umax = 10;           % physical actuator bound used 
 
-% Default: usable research data for the unstable plant.
-% Optional strict mode reproduces the open-loop recommendation exactly, but
-% it is expected to leave the local linearized region for N = 3000.
 collection_mode = "closed_loop_lqr_prbs";  % "closed_loop_lqr_prbs" or "strict_open_loop"
 
 switch collection_mode
@@ -116,21 +82,7 @@ end
 
 T_min = (nu + 1)*order_req - 1;
 
-fprintf('\n=== DeePC data design ===\n');
-fprintf('Tini                         = %d\n', Tini);
-fprintf('Prediction horizon           = %d\n', Npred);
-fprintf('Hankel depth L               = %d\n', L);
-fprintf('Required PE order            = %d\n', order_req);
-fprintf('Theoretical minimum length   = %d\n', T_min);
-fprintf('Chosen data length Ndata     = %d\n', Ndata);
-fprintf('Collection mode              = %s\n', char(collection_mode));
-fprintf('PRBS amplitude bounds        = [%.2f, %.2f]\n', -prbs_max, prbs_max);
-fprintf('Actuator diagnostic bound    = [%.2f, %.2f]\n', -Umax, Umax);
-
 %% 5. Bounded PRBS input from MATLAB idinput
-% This exact input design is required: no sinusoids, no steps, no manual
-% random noise, and no artificial clipping after generation.
-
 rng(7, 'twister');  % reproducibility for the PRBS and measurement noise
 u_prbs = idinput(N, 'prbs', [0 0.3], [-prbs_max prbs_max]);
 u_prbs = reshape(u_prbs, 1, []);
@@ -140,7 +92,7 @@ if any(u_prbs < -prbs_max) || any(u_prbs > prbs_max)
 end
 
 %% 6. One continuous simulation
-x0 = [0; 0; 0.35; 0]; % // TODO: TRY TO CHANGE THIS VALUE TO 0.35
+x0 = [0; 0; 0.35; 0]; % //TODO: TRY TO CHANGE THIS VALUE TO 0.35
 
 X = zeros(nx, Ndata + 1);
 Y = zeros(ny, Ndata);
@@ -150,7 +102,7 @@ X(:, 1) = x0;
 
 add_measurement_noise = true;
 noise_std = 0.001;
-phi_linear_limit = 0.35;   % diagnostic only; no reset or clipping is applied
+phi_linear_limit = 0.35; 
 
 for k = 1:Ndata
     switch collection_mode
@@ -244,11 +196,7 @@ fprintf('pole angle |phi| > %.2f count = %d\n', phi_linear_limit, phi_limit_viol
 fprintf('input clipping count          = 0\n');
 
 if max(abs(X(:))) > 1e6
-    warning(['Open-loop inverted-pendulum data grew very large. The input is PE, ', ...
-             'but the unstable open-loop pole can make long trajectories leave ', ...
-             'the local linearization region. Consider using shorter windows, ', ...
-             'smaller Umax, or stabilizing-feedback data if your DeePC design ', ...
-             'allows closed-loop collected data.']);
+    warning('Open-loop inverted-pendulum data grew very large');
 end
 
 %% 9. Save dataset
@@ -259,7 +207,6 @@ x_data = X;
 
 save('deepc_dataset.mat', 'U', 'Y', 'X', 'u_data', 'y_data', 'x_data', 'Hx', 'Xp', 'Xf');
 
-% Extra metadata and prebuilt matrices are saved separately for convenience.
 save('deepc_cartpole_dataset.mat', ...
      'U', 'Y', 'X', 'u_data', 'y_data', 'x_data', ...
      'Ad', 'Bd', 'Cd', 'Dd', 'Ts', ...
@@ -312,9 +259,8 @@ ylabel('states');
 legend('x', 'x_dot', 'phi', 'phi_dot', 'Location', 'best');
 title('One continuous open-loop state trajectory');
 
-%% =========================================================
-% Local helper functions
-%% =========================================================
+
+
 function H = block_hankel(signal, L, dim)
     % Build a block Hankel matrix from a dim x T signal.
     if isvector(signal) && dim == 1

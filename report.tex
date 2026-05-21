@@ -1,29 +1,36 @@
-\documentclass[12pt]{article}
-\usepackage[margin=1in]{geometry}
+\documentclass[conference]{IEEEtran}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{array}
-\usepackage{float}
-\usepackage{caption}
 \usepackage{hyperref}
 
-\title{Control of an Inverted Pendulum Using LQR and Model Predictive Control}
-\author{Your Name \\ Course / Section}
-\date{\today}
+\title{Data-Enabled Predictive Control of an Inverted Pendulum}
+\author{
+\IEEEauthorblockN{Your Name}
+\IEEEauthorblockA{
+Department of Electrical and Computer Engineering\\
+The University of Texas at Dallas\\
+Richardson, TX, USA\\
+Email: your.email@utdallas.edu}
+}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-This report presents the modeling and control of a linearized cart-pole inverted pendulum system using two state-space control strategies: Linear Quadratic Regulator (LQR) and Model Predictive Control (MPC). The work extends a baseline LQR design with two MPC implementations developed in MATLAB: a condensed prediction-matrix formulation and a recursive formulation with terminal equality constraints. The objective is to regulate the pendulum angle near the upright equilibrium while controlling cart motion and keeping the control effort bounded. Simulation scripts show that the controller behavior is highly sensitive to the MPC horizon, weighting matrices, and terminal constraints. In particular, the recursive MPC formulation gives a more structured tracking setup, while the shorter-horizon condensed MPC case can become unstable.
+This report presents the modeling and predictive control of a linearized cart-pole inverted pendulum system, with the main focus on regularized Data-Enabled Predictive Control (DeePC). Baseline LQR and model-based MPC controllers are used for comparison, while the main DeePC controller predicts admissible future trajectories directly from Hankel matrices built from measured data. The DeePC implementation uses a receding-horizon quadratic tracking objective, input and state constraints, coefficient regularization, past-state slack regularization, and a terminal pole-angle constraint. The objective is to track a desired cart position while keeping the pendulum near the upright equilibrium and respecting practical actuator and state limits.
 \end{abstract}
+
+\begin{IEEEkeywords}
+inverted pendulum, Data-Enabled Predictive Control, model predictive control, LQR, Hankel matrix, constrained control
+\end{IEEEkeywords}
 
 \section{Introduction}
 The inverted pendulum is a standard benchmark for evaluating feedback control algorithms because it is inherently unstable, nonlinear, and underactuated. A controller must stabilize the pendulum angle while also managing the cart position and the applied force. These competing objectives make the system a useful case study for optimal control.
 
-This project considers a linearized cart-pole model and compares LQR with MPC. The LQR controller provides a compact full-state feedback law based on quadratic performance criteria. MPC, in contrast, explicitly predicts future outputs over a finite horizon and handles input constraints through online optimization. The goal of this report is to document the mathematical model, summarize the controller designs implemented in MATLAB, and discuss the observed simulation behavior.
+This project considers a linearized cart-pole model and compares LQR, model-based MPC, and DeePC. The LQR controller provides a compact full-state feedback law based on quadratic performance criteria. MPC explicitly predicts future states using the identified model and handles constraints through online optimization. DeePC goes one step further by using measured input-state trajectories directly in the prediction problem, replacing the explicit model recursion with Hankel matrix consistency constraints \cite{coulson2019deepc}. The goal of this report is to document the model, summarize the implemented controllers, and emphasize the regularized DeePC formulation implemented in \texttt{deepc\_reg\_running.m}.
 
 \section{System Model}
 \subsection{Physical Parameters}
@@ -111,8 +118,10 @@ This choice places a strong penalty on cart position error and a moderate penalt
 \subsection{Interpretation}
 The LQR design offers a simple full-state feedback solution with low implementation complexity. Since the gain is computed offline, the online control law is computationally inexpensive. However, standard LQR does not directly enforce actuator constraints. In this project, it serves as a useful baseline against which the MPC controllers can be compared.
 
-\section{MPC Design}
-Two MPC formulations were implemented: a condensed prediction-matrix formulation in \texttt{IP\_MPC.m} and a recursive formulation in \texttt{IP\_MPC\_RECURSIVE.m}. Both use the discretized linear model with sampling time
+\section{MPC Formulation}
+Model Predictive Control is the main constrained optimal control method used in this project. Unlike LQR, which computes a fixed feedback gain offline, MPC repeatedly solves a finite-horizon optimization problem online. At each sampling instant, the controller uses the current measured state as the initial condition, predicts the future cart-pole motion over a horizon, minimizes a quadratic tracking cost, applies only the first optimized input, and then repeats the calculation at the next sample. This receding-horizon structure allows the controller to account directly for actuator limits and finite-horizon tracking objectives.
+
+Two MPC formulations were considered: a condensed prediction-matrix formulation in \texttt{IP\_MPC.m} and a recursive state-space formulation in \texttt{IP\_MPC\_RECURSIVE.m}. The recursive formulation is the more complete implementation and is the focus of this section. Both formulations use the discretized linear model with sampling time
 \[
 T_s = 0.01~\text{s}.
 \]
@@ -123,10 +132,173 @@ The continuous-time system is discretized in MATLAB using \texttt{c2d}, producin
 x_{k+1} = A_d x_k + B_d u_k, \qquad y_k = C_d x_k.
 \]
 
-This discrete-time model is used for prediction over a finite horizon.
+The state used by the controller is
+\[
+x_k =
+\begin{bmatrix}
+p_k & \dot p_k & \phi_k & \dot \phi_k
+\end{bmatrix}^{T},
+\]
+where $p_k$ is cart position and $\phi_k$ is the pendulum angle. The input $u_k$ is the horizontal force applied to the cart. The MPC optimization is written directly in terms of predicted states and inputs,
+\[
+x_{i|k} \approx x_{k+i}, \qquad u_{i|k} \approx u_{k+i},
+\]
+where $i$ is the prediction index and $k$ is the current control step.
+
+\subsection{Prediction Variables and Horizon}
+In \texttt{IP\_MPC\_RECURSIVE.m}, the decision variables are
+\[
+\mathbf{x}_k =
+\left\{
+x_{0|k},x_{1|k},\ldots,x_{N|k}
+\right\},
+\qquad
+\mathbf{u}_k =
+\left\{
+u_{0|k},u_{1|k},\ldots,u_{N-1|k}
+\right\}.
+\]
+The implemented horizon is
+\[
+N=20.
+\]
+Thus, at each time step the optimizer predicts $20$ future control moves and $21$ state points, including the initial predicted state. With $T_s=0.01$~s, the prediction window covers $0.20$~s of future motion.
+
+\subsection{Reference Tracking Objective}
+The desired equilibrium is
+\[
+x_{\mathrm{ref}} =
+\begin{bmatrix}
+0.2 & 0 & 0 & 0
+\end{bmatrix}^{T}.
+\]
+This means the controller attempts to move the cart to $0.2$~m while keeping the cart velocity, pendulum angle, and angular velocity at zero. The stage cost used in the recursive MPC is
+\[
+\ell(x_{i|k},u_{i|k})
+=
+(x_{i|k}-x_{\mathrm{ref}})^T Q_x (x_{i|k}-x_{\mathrm{ref}})
++ u_{i|k}^T R u_{i|k},
+\]
+with
+\[
+Q_x =
+\operatorname{diag}(200,\;20,\;500,\;20),
+\qquad
+R = 0.01.
+\]
+The diagonal entries of $Q_x$ show the relative priorities in the tracking objective. The pendulum angle receives the largest penalty, so deviations from the upright position are strongly discouraged. Cart position is also weighted heavily because the controller is tracking a nonzero cart-position reference. The velocity terms are penalized less strongly, mainly to damp motion and avoid aggressive transient behavior. The scalar input weight $R=0.01$ penalizes excessive force but is small enough to allow the controller to use the actuator when needed.
+
+\subsection{Terminal Cost}
+The recursive MPC adds a terminal cost at the end of the prediction horizon,
+\[
+V_f(x_{N|k})
+=
+(x_{N|k}-x_{\mathrm{ref}})^T P (x_{N|k}-x_{\mathrm{ref}}).
+\]
+The matrix $P$ is obtained from the discrete-time LQR design
+\[
+[K_f,P] = \operatorname{dlqr}(A_d,B_d,Q_x,R).
+\]
+This choice makes the terminal penalty approximate the infinite-horizon cost-to-go near the reference equilibrium. In other words, the finite-horizon MPC problem is encouraged to end in a state from which the local LQR feedback
+\[
+u = -K_f(x-x_{\mathrm{ref}})
+\]
+can continue stabilizing the system effectively. The terminal cost improves the stability behavior of the finite-horizon controller without forcing an exact terminal equality constraint.
+
+\subsection{Input Constraints}
+The actuator force is limited in the optimization by
+\[
+u_{\min} \le u_{i|k} \le u_{\max},
+\qquad i=0,\ldots,N-1,
+\]
+with
+\[
+u_{\min}=-10,\qquad u_{\max}=10.
+\]
+These are hard constraints, so every predicted input must remain inside the allowable force range. This is a key advantage of MPC over a basic LQR controller: the input bound is handled inside the optimization rather than being applied afterward as a saturation nonlinearity.
+
+\subsection{Recursive MPC Optimization Problem}
+At time step $k$, the optimization problem solved by the recursive MPC controller is
+\begin{align}
+\min_{\{x_{i|k},u_{i|k}\}} \quad
+&
+\sum_{i=0}^{N-1}
+\left[
+(x_{i|k}-x_{\mathrm{ref}})^T Q_x (x_{i|k}-x_{\mathrm{ref}})
++ u_{i|k}^T R u_{i|k}
+\right]
+\nonumber\\
+&\quad
++ (x_{N|k}-x_{\mathrm{ref}})^T P (x_{N|k}-x_{\mathrm{ref}})
+\label{eq:recursive_mpc_objective}
+\\
+\text{subject to} \quad
+& x_{0|k}=x_k,
+\label{eq:mpc_initial_condition}\\
+& x_{i+1|k}=A_d x_{i|k}+B_d u_{i|k},
+\qquad i=0,\ldots,N-1,
+\label{eq:mpc_dynamics}\\
+& -10 \le u_{i|k} \le 10,
+\qquad i=0,\ldots,N-1.
+\label{eq:mpc_input_constraint}
+\end{align}
+This is a quadratic program because the cost is quadratic and the constraints are linear. In MATLAB, the problem is built using YALMIP decision variables and solved using OSQP. The recursive formulation is easy to read because it keeps the state recursion explicit instead of eliminating the states into one large condensed input-only problem.
+
+\subsection{Terminal Invariant Set Diagnostic}
+The script also constructs a finite approximation of a terminal invariant set under the local LQR feedback. Define the tracking error
+\[
+e_k = x_k-x_{\mathrm{ref}}
+\]
+and the local closed-loop matrix
+\[
+A_f = A_d-B_dK_f.
+\]
+The terminal set is approximated by requiring that the LQR feedback remain within the input bounds for a finite number of future closed-loop steps:
+\[
+\mathcal{X}_f =
+\left\{
+e :
+u_{\min}
+\le
+-K_f A_f^j e
+\le
+u_{\max},
+\quad j=0,\ldots,M_{\mathrm{set}}
+\right\},
+\]
+where the implementation uses
+\[
+M_{\mathrm{set}}=80.
+\]
+This set can be written as a polyhedral inequality
+\[
+H_f e \le h_f.
+\]
+The code verifies invariance numerically with \texttt{linprog} when the Optimization Toolbox is available. The terminal-set constraint
+\[
+H_f(x_{N|k}-x_{\mathrm{ref}})\le h_f
+\]
+is present in the script but currently commented out. Therefore, the current recursive MPC uses the terminal set as a diagnostic through the stored terminal margin, while the active optimization uses the LQR terminal cost and input constraints.
+
+\subsection{Receding-Horizon Implementation}
+After solving the optimization problem, the controller applies only the first element of the optimal input sequence:
+\[
+u_k = u_{0|k}^{\star}.
+\]
+The plant is then advanced using
+\[
+x_{k+1}=A_d x_k+B_d u_k,
+\]
+and a new optimization problem is solved from the updated state. This feedback loop is important because the prediction is recomputed at every sample, so modeling errors, disturbances, and numerical deviations can be corrected at the next step.
+
+The closed-loop simulation in \texttt{IP\_MPC\_RECURSIVE.m} runs for
+\[
+T_{\mathrm{sim}}=300
+\]
+steps, corresponding to $3$ seconds of simulated time. The script stores the state history, input history, predicted state sequence, terminal error, terminal-set margin, and solver timing. The timing check compares the average and worst-case optimization time against the sampling time $T_s=0.01$~s to assess whether the controller is computationally feasible for real-time implementation.
 
 \subsection{Condensed MPC Formulation}
-In \texttt{IP\_MPC.m}, the prediction horizon is chosen as
+The earlier condensed implementation in \texttt{IP\_MPC.m} uses an input-only optimization variable. The horizon is
 \[
 N = 5.
 \]
@@ -166,63 +338,155 @@ x_0 =
 \end{bmatrix}^T.
 \]
 
-\subsection{Recursive MPC Formulation}
-In \texttt{IP\_MPC\_RECURSIVE.m}, the optimization is posed directly in terms of predicted states and inputs:
-\[
-\{x_{k|k},x_{k+1|k},\dots,x_{k+N|k}\}, \qquad \{u_{k|k},\dots,u_{k+N-1|k}\}.
-\]
+The condensed form is computationally compact because it eliminates the state variables using the prediction matrices. However, in the current project it is less complete than the recursive implementation because it uses a short horizon and no terminal cost or terminal set.
 
-The prediction horizon is increased to
+\section{Regularized DeePC Formulation}
+The main controller in this project is the regularized DeePC implementation in \texttt{deepc\_reg\_running.m}. DeePC uses measured trajectories to predict future behavior directly, instead of using the model recursion
 \[
-N = 30,
+x_{k+1}=A_d x_k+B_d u_k
 \]
-and the script comments note that infeasibility occurs for $N < 30$ because of the terminal constraint.
+inside the online optimizer. The key idea is that, for a linear time-invariant system with sufficiently exciting data, a valid trajectory can be represented as a linear combination of columns of a Hankel matrix built from one long measured trajectory \cite{coulson2019deepc}.
 
-The stage cost is
+\subsection{Offline Data Collection}
+The DeePC dataset is generated in \texttt{deepc\_data\_collection.m}. Since the inverted pendulum is open-loop unstable, the data are collected using stabilizing LQR feedback plus a bounded PRBS excitation:
 \[
-\ell(x_{i|k},u_{i|k}) = (y_{i|k}-r)^TQ(y_{i|k}-r) + u_{i|k}^TRu_{i|k},
+u_k = -K_{\mathrm{data}}x_k + u_{\mathrm{PRBS},k}.
 \]
-with
+The data-collection controller uses
 \[
-Q = \mathrm{diag}(200,200), \qquad R = 0.01,
-\qquad
-r = \begin{bmatrix} 0.2 \\ 0 \end{bmatrix}.
+Q_{\mathrm{data}}=\operatorname{diag}(30,\;2,\;30,\;10),
+\qquad R_{\mathrm{data}}=10,
 \]
+and the PRBS signal is bounded by
+\[
+u_{\mathrm{PRBS},k}\in[-4,4].
+\]
+The dataset length is
+\[
+N_{\mathrm{data}}=3000,
+\]
+with sampling time $T_s=0.01$ s. The initial data-collection state is
+\[
+x_0 =
+\begin{bmatrix}
+0 & 0 & 0.35 & 0
+\end{bmatrix}^{T}.
+\]
+Small measurement noise with standard deviation $0.001$ is added to the measured outputs. The collection script also checks persistency of excitation, actuator bounds, pole-angle range, and Hankel matrix dimensions before saving \texttt{deepc\_cartpole\_dataset.mat}.
 
-The optimization problem is
-\begin{align*}
-\min_{\{x_{i|k},u_{i|k}\}} \quad &
-\sum_{i=1}^{N}
-\left[
-(y_{i|k}-r)^TQ(y_{i|k}-r) + u_{i|k}^TRu_{i|k}
-\right] \\
-\text{subject to} \quad &
-x_{i+1|k} = A_d x_{i|k} + B_d u_{i|k}, \\
-& u_{\min} \le u_{i|k} \le u_{\max}, \\
-& x_{0|k} = x_k, \\
-& x_{N|k} = x_{\mathrm{ref}},
-\end{align*}
+\subsection{Hankel Matrix Partition}
+Let $U$, $X$, and $Y$ denote the collected input, state, and output trajectories. The block Hankel matrices are built with length
+\[
+L=T_{\mathrm{ini}}+N,
+\]
 where
 \[
-x_{\mathrm{ref}} =
+T_{\mathrm{ini}}=8,\qquad N=100.
+\]
+The input and state Hankel matrices are partitioned into past and future blocks:
+\[
+H_u =
+\begin{bmatrix}
+U_p\\
+U_f
+\end{bmatrix},
+\qquad
+H_x =
+\begin{bmatrix}
+X_p\\
+X_f
+\end{bmatrix}.
+\]
+Here, $U_p$ and $X_p$ encode the recent measured trajectory used to initialize DeePC, while $U_f$ and $X_f$ encode candidate future input and state trajectories. The online DeePC decision variable $g$ selects a linear combination of Hankel columns.
+
+\subsection{Online Decision Variables}
+At each control step, \texttt{deepc\_reg\_running.m} solves for
+\[
+g,\qquad
+\sigma,\qquad
+u=
+\operatorname{col}(u_{0|k},\ldots,u_{N-1|k}),
+\qquad
+x=
+\operatorname{col}(x_{0|k},\ldots,x_{N-1|k}).
+\]
+The vector $g$ is the trajectory-combination coefficient. The slack variable $\sigma$ relaxes the past-state matching constraint, which improves robustness when the data contain noise or when the current trajectory is not represented perfectly by the finite dataset. Regularization and relaxation in direct data-driven control can be interpreted as accounting for implicit identification effects \cite{dorfler2023bridging}.
+
+\subsection{Standard DeePC Optimization Problem}
+The online reference and weights used in \texttt{deepc\_reg\_running.m} are
+\[
+r=
 \begin{bmatrix}
 0.2 & 0 & 0 & 0
-\end{bmatrix}^T.
+\end{bmatrix}^{T},
+\quad
+Q_x=\operatorname{diag}(200,\;10,\;1000,\;100),
+\quad
+R_u=0.05.
 \]
+The lifted cost matrices and reference vector are
+\[
+\bar Q=I_N\otimes Q_x,\qquad
+\bar R=I_N\otimes R_u,\qquad
+r_{\mathrm{stack}}=\mathbf{1}_N\otimes r.
+\]
+With $\lambda_g=10$ and $\lambda_{\sigma}=10^8$, the DeePC problem solved at each sampling instant is written in standard form as
+\begin{align}
+\min_{g,\sigma,u,x}\quad
+&
+(x-r_{\mathrm{stack}})^T\bar Q(x-r_{\mathrm{stack}})
++u^T\bar R u \nonumber\\
+&\quad
++\lambda_g\|g\|_1
++\lambda_{\sigma}\sigma^T\sigma
+\label{eq:deepc_standard_cost}\\
+\mathrm{s.t.}\quad
+&U_p g=u_{\mathrm{ini}},
+\label{eq:deepc_up}\\
+&X_p g=x_{\mathrm{ini}}+\sigma,
+\label{eq:deepc_xp}\\
+&U_f g=u,
+\label{eq:deepc_uf}\\
+&X_f g=x,
+\label{eq:deepc_xf}\\
+&x_{0|k}=x_k,
+\label{eq:deepc_x0}\\
+&-9.5\le u_{i|k}\le 9.5,
+\quad i=0,\ldots,N-1,
+\label{eq:deepc_u_bounds}\\
+&-0.40\le p_{i|k}\le 0.40,
+\quad i=0,\ldots,N-1,
+\label{eq:deepc_p_bounds}\\
+&-0.15\le \phi_{i|k}\le 0.15,
+\quad i=0,\ldots,N-1,
+\label{eq:deepc_phi_bounds}\\
+&\phi_{N-1|k}=0.
+\label{eq:deepc_terminal_phi}
+\end{align}
+The first four equality constraints are the behavioral DeePC constraints: they force the predicted input and state trajectories to be generated as linear combinations of the collected data columns. The constraint $x_{0|k}=x_k$ anchors the prediction to the current measured or simulated state. The remaining constraints enforce actuator saturation, cart-position limits, pole-angle limits, and the terminal pole-angle condition.
 
-This terminal equality constraint makes the optimization more restrictive but gives a clear target at the end of the horizon. Only the first control move is applied at each step, and the problem is solved again at the next sample, following the standard receding-horizon principle.
+The $\ell_1$ penalty on $g$ discourages unnecessarily large or dense combinations of data columns. The large penalty on $\sigma$ keeps the past-state mismatch small while still allowing the optimization to remain feasible in the presence of imperfect data. Related robust and kernelized DeePC extensions have also been developed for nonlinear systems \cite{huang2024rokdeepc}.
+
+\subsection{Receding-Horizon DeePC Implementation}
+The DeePC controller is built once as a YALMIP \texttt{optimizer} object and solved with OSQP at each simulation step. After each solve, only the first input is applied:
+\[
+u_k=u_{0|k}^{\star}.
+\]
+The simulated plant is advanced with the discrete model, and the past input/state window is shifted before the next DeePC solve. The online simulation starts from
+\[
+x_0 =
+\begin{bmatrix}
+0 & 0 & 0.15 & 0
+\end{bmatrix}^{T}
+\]
+and runs for
+\[
+N_{\mathrm{sim}}=500
+\]
+steps. The script stores the closed-loop trajectory, input sequence, solver status, $\|g\|_2$, $\|\sigma\|_2$, cumulative stage cost, constraint violations, and computation-time diagnostics. These quantities are used to evaluate tracking performance, data-coefficient behavior, slack usage, constraint satisfaction, and real-time feasibility.
 
 \section{Simulation Setup}
-Both MPC scripts simulate the system for
-\[
-T_{\mathrm{sim}} = 500
-\]
-steps, corresponding to a total time of
-\[
-500 \times 0.01 = 5~\text{s}.
-\]
-
-The LQR script also uses a $0.01$~s simulation grid over $5$~s. All controllers plot the cart position, pendulum angle, and control force. The optimization problems in the MPC implementations are solved in YALMIP using \texttt{quadprog}.
+The condensed MPC script simulates $500$ control steps, corresponding to $5$ seconds. The recursive MPC script simulates $300$ control steps, corresponding to $3$ seconds. The DeePC script simulates $500$ online control steps after the initial past-window warm start, also corresponding to $5$ seconds. All controllers plot cart position, pendulum angle, and control force. The condensed MPC problem is solved in YALMIP using \texttt{quadprog}, while the recursive MPC and DeePC problems are solved in YALMIP using OSQP.
 
 \section{Results and Discussion}
 \subsection{LQR}
@@ -231,9 +495,9 @@ The LQR controller provides a conventional stabilizing solution for the lineariz
 \subsection{Condensed MPC}
 The condensed MPC controller includes actuator bounds but uses a short horizon and no terminal cost or terminal constraint. Based on the provided simulation image, the pendulum-angle response can diverge significantly while the input saturates at the lower bound of $-10$~N. This suggests that the short-horizon setup is not sufficient to guarantee practical closed-loop stability for the chosen weights and initial condition.
 
-\begin{figure}[H]
+\begin{figure}[t]
     \centering
-    \includegraphics[width=0.95\textwidth]{q20_200.jpg}
+    \includegraphics[width=\linewidth]{q20_200.jpg}
     \caption{Example MPC response showing pendulum-angle growth and input saturation in the constrained condensed formulation.}
     \label{fig:mpc_unstable}
 \end{figure}
@@ -247,50 +511,74 @@ Several factors contribute to this behavior:
 \end{itemize}
 
 \subsection{Recursive MPC}
-The recursive MPC design is more structured. It uses a longer horizon, stronger output weighting, and a terminal equality constraint that forces the predicted state to end at the desired equilibrium. The code comments indicate that this formulation becomes infeasible for shorter horizons, which is consistent with the restrictive nature of exact terminal constraints.
+The recursive MPC design is more structured. It uses a full-state tracking cost, hard input bounds, and an LQR terminal penalty. This gives a clearer constrained optimal control formulation than the short-horizon condensed implementation. The terminal invariant set constructed in the script provides an additional diagnostic for checking whether the terminal predicted state lies in a region where the local LQR feedback can respect the actuator limits.
 
 Compared with the condensed formulation, this controller is better aligned with reference tracking because it explicitly penalizes deviation from
-\[
-r = \begin{bmatrix}0.2 & 0\end{bmatrix}^T
-\]
-and drives the full predicted terminal state to
 \[
 x_{\mathrm{ref}} =
 \begin{bmatrix}
 0.2 & 0 & 0 & 0
 \end{bmatrix}^T.
 \]
-The tradeoff is increased online computational effort and possible feasibility issues if the horizon is too short or the constraints are too restrictive.
+The tradeoff is increased online computational effort and possible feasibility issues if the horizon is too short, if the terminal set is enforced too aggressively, or if the constraints are too restrictive.
 
-\section{Comparison of LQR and MPC}
+\subsection{Regularized DeePC}
+The DeePC controller is the main predictive controller studied in this project. Unlike the model-based recursive MPC, DeePC does not impose the prediction model through explicit equality constraints of the form $x_{i+1}=A_dx_i+B_du_i$. Instead, the predicted trajectory must lie in the subspace spanned by the collected data through the Hankel constraints. This makes DeePC a data-driven predictive control method: the model is still used in simulation and data generation, but the online controller relies on the measured trajectory library.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.95\textwidth]{deepc_1.jpg}
+    \caption{Closed-loop DeePC response showing cart position, pole angle, and control input with the implemented online constraints.}
+    \label{fig:deepc_response}
+\end{figure*}
+
+The regularization terms are important for this implementation. The $\lambda_g\|g\|_1$ term limits the coefficient vector used to combine Hankel columns, which helps avoid overly aggressive extrapolation from the data. The $\lambda_{\sigma}\|\sigma\|_2^2$ term heavily penalizes mismatch in the past-state trajectory while preserving feasibility when the measured state history is noisy or imperfect. The stored values of $\|g\|_2$ and $\|\sigma\|_2$ therefore provide useful diagnostics: large $g$ values may indicate poor data representation, while large $\sigma$ values may indicate inconsistency between the current trajectory and the collected dataset.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.95\textwidth]{deepc2.jpg}
+    \caption{DeePC internal-variable diagnostics: Hankel coefficient norm $\|g\|_2$ and past-state slack norm $\|\sigma\|_2$.}
+    \label{fig:deepc_internal}
+\end{figure*}
+
+The DeePC constraints are also more restrictive than the baseline MPC input-only formulation because they include input bounds, cart-position bounds, pole-angle bounds, and a terminal pole-angle equality. The terminal condition $\phi_{N-1|k}=0$ directly targets upright stabilization at the end of the prediction horizon. The closed-loop diagnostics in \texttt{deepc\_reg\_running.m} report successful solves, constraint violation counts, cumulative stage cost, and computation times, which makes the controller easier to evaluate quantitatively.
+
+\section{Comparison of Controllers}
 The main differences between the controller designs in this project are summarized in Table~\ref{tab:comparison}.
 
-\begin{table}[H]
+\begin{table*}[t]
 \centering
 \caption{Comparison of control approaches}
 \label{tab:comparison}
-\begin{tabular}{>{\raggedright\arraybackslash}p{2.4cm} >{\raggedright\arraybackslash}p{4.8cm} >{\raggedright\arraybackslash}p{4.8cm}}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}p{0.36\textwidth} >{\raggedright\arraybackslash}p{0.36\textwidth}}
 \toprule
 Method & Advantages & Limitations \\
 \midrule
 LQR & Simple full-state feedback, low online computation, good baseline stabilizer & Does not explicitly enforce input constraints, less flexible for tracking and constrained operation \\
 Condensed MPC & Explicitly handles input bounds, optimization-based design & Short horizon can produce poor behavior on unstable plants, no terminal ingredients in current script \\
-Recursive MPC & Natural tracking formulation, direct state/input constraints, terminal target included & Higher computational cost, terminal equality can cause infeasibility for short horizons \\
+Recursive MPC & Natural tracking formulation, direct state/input constraints, LQR terminal cost and terminal-set diagnostic & Higher computational cost, feasibility can become sensitive to horizon length and constraint tightness \\
+Regularized DeePC & Main project controller; predicts from Hankel data, includes input/state constraints, terminal pole-angle constraint, and robustness regularization & Requires sufficiently rich and well-conditioned data; larger optimization problem with sensitivity to data quality, slack tuning, and Hankel dimensions \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \section{Conclusion}
-This project studied the control of an inverted pendulum using LQR and two MPC implementations. The LQR controller provides an efficient unconstrained baseline, while MPC offers the ability to enforce actuator limits and shape future behavior through optimization. The simulation setup also shows that MPC performance depends strongly on formulation details. A short-horizon condensed MPC can become unstable for the chosen tuning, whereas the recursive MPC with terminal constraints gives a more principled tracking design at the cost of increased complexity and feasibility sensitivity.
+This project studied the control of an inverted pendulum using LQR, model-based MPC, and regularized DeePC. The LQR controller provides an efficient unconstrained baseline, while MPC offers the ability to enforce actuator limits and shape future behavior through optimization. The main contribution is the DeePC implementation, which replaces explicit model-based prediction with Hankel-matrix trajectory constraints built from offline data. The regularized DeePC controller tracks the cart-position reference, penalizes pendulum-angle deviation strongly, enforces input and state constraints, and monitors coefficient norm, slack norm, solver success, constraint violations, cumulative cost, and computation time.
 
-Future improvements would include adding a terminal cost or terminal set to the condensed MPC formulation, tuning the prediction horizon and weights more systematically, and comparing all controllers using common initial conditions and quantitative performance metrics such as settling time, overshoot, and control energy.
+Future improvements would include improving the past-window warm start, tuning $T_{\mathrm{ini}}$, $N$, $\lambda_g$, and $\lambda_{\sigma}$ more systematically, comparing DeePC and MPC under identical initial conditions, and studying how data quality affects closed-loop feasibility and tracking performance.
 
-\section*{Appendix: MATLAB Files Used}
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\appendices
+\section{MATLAB Files Used}
 The report is based on the following scripts in the project folder:
 \begin{itemize}
     \item \texttt{IP\_LQR.m}
     \item \texttt{IP\_MPC.m}
     \item \texttt{IP\_MPC\_RECURSIVE.m}
+    \item \texttt{deepc\_data\_collection.m}
+    \item \texttt{deepc\_reg\_running.m}
     \item \texttt{inverted\_pendulum\_ss.m}
     \item \texttt{Inverted\_pendulum\_tf.m}
     \item \texttt{IP\_PID.m}

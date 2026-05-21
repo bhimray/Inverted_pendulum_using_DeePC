@@ -47,7 +47,7 @@ N = 20; % getting infeasiblity for N < 30 because of terminal constraint
 Qx = diag([200 20 500 20]);
 R = 0.01;
 x_ref = [0.2; 0; 0; 0];   % desired state
-x = [0.0;0.0;0.1;0.0];
+x = [0.0;0.0;0.3;0.0];
 
 umin = -10;
 umax = 10;
@@ -107,7 +107,7 @@ else
 end
 
 %% Simulation
-Tsim = 500;
+Tsim = 300;
 t = (0:Tsim-1)*Ts;
 
 
@@ -123,7 +123,7 @@ terminal_margin_hist = nan(1,Tsim);
 
 x_mpc(:,1) = x;
 
-ops = sdpsettings('solver','OSQP','verbose',1);
+ops = sdpsettings('solver','OSQP','verbose',1,'osqp.max_iter',2000);
 
 for k = 1:Tsim
 
