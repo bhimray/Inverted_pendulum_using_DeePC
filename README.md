@@ -4,7 +4,7 @@ This repository implements and compares **Data-Enabled Predictive Control (DeePC
 
 The project is written in MATLAB and includes the complete workflow: system modeling, data collection, Hankel matrix construction, regularized DeePC optimization, MPC/LQR baselines, result plots, animations, and a LaTeX report.
 
-![DeePC closed-loop response](deepc_plots/deepc_closed_loop_response.png)
+![DeePC closed-loop trajectory](first_traj_output.jpg)
 
 ## Why This Project Matters
 
@@ -40,7 +40,8 @@ The main contribution of this project is a regularized DeePC controller that pre
 |-- IP_LQR_mod.m                     # LQR baseline with feedforward reference tracking
 |-- animation.m                      # Generates closed-loop cart-pole animations
 |-- install_osqp.m                   # OSQP MATLAB interface installer
-|-- deepc_plots/                     # DeePC result figures
+|-- deepc_plots/                     # Additional DeePC result figures
+|-- first_*.jpg                      # Main DeePC result figures
 |-- report.tex                       # IEEE-style technical report
 |-- references.bib                   # Report bibliography
 |-- *.mat                            # Saved datasets and simulation results
@@ -147,29 +148,29 @@ Key implementation choices in `deepc_reg_running.m`:
 
 ## Results and Visualizations
 
-The repository includes generated plots and animations for reviewing controller behavior.
+The repository includes generated plots and animations for reviewing controller behavior. The main DeePC result figures are the files whose names start with `first_`, and `inverted_pendulum_deepc.mp4` is the corresponding DeePC animation.
 
 ### DeePC Closed-Loop Response
 
-![DeePC closed-loop response](deepc_plots/deepc_closed_loop_response.png)
+![DeePC trajectory](first_traj_output.jpg)
 
 ### DeePC State Trajectory
 
-![DeePC state trajectory](deepc_plots/deepc_state_trajectory.png)
+![DeePC all-state output](first_all_state_output.jpg)
 
 ### DeePC Internal Variables
 
-![DeePC internal variables](deepc_plots/deepc_internal_variables.png)
+![DeePC coefficient and slack norms](first_norm_output.jpg)
 
 ### DeePC Computation Time
 
-![DeePC computation time](deepc_plots/deepc_computation_time.png)
+![DeePC computation time](first_compt_time_output.jpg)
 
 Animation files are also included:
 
 - `inverted_pendulum_lqr.mp4`
 - `inverted_pendulum_mpc.mp4`
-- `inverted_pendulum_deepc.mp4`
+- `inverted_pendulum_deepc.mp4` - DeePC animation corresponding to the `first_*` result figures
 
 ## How to Run
 
